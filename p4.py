@@ -2,10 +2,33 @@ import numpy as np
 import cv2
 import glob
 import matplotlib.pyplot as plt
-# from moviepy.editor import VideoFileClip
+from moviepy.editor import VideoFileClip
 
 
+class Line():
 
+    def __init__(self):
+        # was the line detected in the last iteration?
+        self.detected = False  
+        # x values of the last n fits of the line
+        self.recent_xfitted = [] 
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None     
+        #polynomial coefficients averaged over the last n iterations
+        self.best_fit = None  
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]  
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None 
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None 
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float') 
+        #x values for detected line pixels
+        self.allx = None  
+        #y values for detected line pixels
+        self.ally = None
+        
 def camera_cal(path, nx=9, ny=6):
 	# prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
 	objp = np.zeros((nx*ny,3), np.float32)
@@ -193,31 +216,105 @@ def find_lanes(img, nwindows=9, margin=100):
     # Concatenate the arrays of indices
     left_lane_inds = np.concatenate(left_lane_inds)
     right_lane_inds = np.concatenate(right_lane_inds)
-
+    
     # Extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds] 
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds] 
+    left_lane.allx = nonzerox[left_lane_inds]
+    left_lane.ally = nonzeroy[left_lane_inds]
+    right_lane.allx = nonzerox[right_lane_inds]
+    right_lane.ally = nonzeroy[right_lane_inds]
 
     # Fit a second order polynomial to each
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
+    left_lane.current_fit = np.polyfit(left_lane.ally, left_lane.allx, 2)
+    right_lane.current_fit = np.polyfit(right_lane.ally, right_lane.allx, 2)
     
     
     # Generate x and y values for plotting
     ploty = np.linspace(0, img.shape[0]-1, img.shape[0] )
-    left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-    right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+    left_lane.recent_xfitted = left_lane.current_fit[0]*ploty**2 + left_lane.current_fit[1]*ploty + left_lane.current_fit[2]
+    right_lane.recent_xfitted = right_lane.current_fit[0]*ploty**2 + right_lane.current_fit[1]*ploty + right_lane.current_fit[2]
 
+    left_lane.detected = True
+    right_lane.detected  = True
+    
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
     out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+	
+	# Define conversions in x and y from pixels space to meters (world space)
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+    y_eval = np.max(ploty)
+
+    # Fitting new polynomials to x,y in world space (meters) for both lane lines
+    left_fit_cr = np.polyfit(ploty * ym_per_pix, left_lane.recent_xfitted * xm_per_pix, 2)
+    right_fit_cr = np.polyfit(ploty * ym_per_pix, right_lane.recent_xfitted * xm_per_pix, 2)
+    # Calculate radius of curvature for each lane
+    left_lane.radius_of_curvature = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
+    right_lane.radius_of_curvature = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
+
+    left_lane.line_base_pos = left_lane.recent_xfitted[-1] * xm_per_pix
+    right_lane.line_base_pos = right_lane.recent_xfitted[-1] * xm_per_pix
+    
+    return out_img
+	
+def update_lanes(binary_warped):
+    # Assume you now have a new warped binary image 
+    # from the next frame of video (also called "binary_warped")
+    # It's now much easier to find line pixels!
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    
+    margin = 100
+    
+    left_lane_inds = ((nonzerox > (left_lane.current_fit[0]*(nonzeroy**2) + left_lane.current_fit[1]*nonzeroy + 
+    left_lane.current_fit[2] - margin)) & (nonzerox < (left_lane.current_fit[0]*(nonzeroy**2) + 
+    left_lane.current_fit[1]*nonzeroy + left_lane.current_fit[2] + margin))) 
+    
+    right_lane_inds = ((nonzerox > (right_lane.current_fit[0]*(nonzeroy**2) + right_lane.current_fit[1]*nonzeroy + 
+    right_lane.current_fit[2] - margin)) & (nonzerox < (right_lane.current_fit[0]*(nonzeroy**2) + 
+    right_lane.current_fit[1]*nonzeroy + right_lane.current_fit[2] + margin)))
+    
+    # Again, extract left and right line pixel positions
+    left_lane.allx = nonzerox[left_lane_inds]
+    left_lane.ally = nonzeroy[left_lane_inds] 
+    right_lane.allx = nonzerox[right_lane_inds]
+    right_lane.ally = nonzeroy[right_lane_inds]
+    
+    # Fit a second order polynomial to each
+    left_lane.current_fit = np.polyfit(left_lane.ally, left_lane.allx, 2)
+    right_lane.current_fit = np.polyfit(right_lane.ally, right_lane.allx, 2)
+    
+    # Generate x and y values for plotting
+    ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
+
+    left_lane.recent_xfitted = left_lane.current_fit[0]*ploty**2 + left_lane.current_fit[1]*ploty + left_lane.current_fit[2]
+    right_lane.recent_xfitted = right_lane.current_fit[0]*ploty**2 + right_lane.current_fit[1]*ploty + right_lane.current_fit[2]
+    
+    # Create an image to draw on and an image to show the selection window
+    out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
+    window_img = np.zeros_like(out_img)
+    # Color in left and right line pixels
+    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+    
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+    y_eval = np.max(ploty)
+    
+    # Fit new polynomials to x,y in world space
+    left_fit_cr = np.polyfit(ploty * ym_per_pix, left_lane.recent_xfitted * xm_per_pix, 2)
+    right_fit_cr = np.polyfit(ploty * ym_per_pix, right_lane.recent_xfitted * xm_per_pix, 2)
+    # Calculate the new radii of curvature
+    left_lane.radius_of_curvature = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
+    right_lane.radius_of_curvature = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
+    
+    left_lane.line_base_pos = left_lane.recent_xfitted[-1] * xm_per_pix
+    right_lane.line_base_pos = right_lane.recent_xfitted[-1] * xm_per_pix
     
     return out_img
 	
 def process_image(image):
-	mtx, dist = camera_cal('camera_cal')
-
 	combined_binary = compined_threshod(image)
 	
 	img_size = image.shape
@@ -230,24 +327,31 @@ def process_image(image):
                     [960. / 1280. * img_size[1], 720. / 720. * img_size[0]],
                     [320. / 1280. * img_size[1], 720. / 720. * img_size[0]]], np.float32)
 	combined_binary_top_down, perspective_M = unwarp(combined_binary, src, dst)
-	
-	output = find_lanes(combined_binary_top_down)
+
+	if (left_lane.detected is False) or (right_lane.detected is False):
+		output = find_lanes(combined_binary_top_down)
+	else:
+		output = update_lanes(combined_binary_top_down)
+    
 
 	return output
 	
 	
 	
 if __name__ == "__main__":
-    video = False
+    video = True #False
+    mtx, dist = camera_cal('camera_cal')
+    left_lane= Line()
+    right_lane= Line()
     
     if video:
         input_video = 'project_video.mp4'
         # input_video = 'challenge_video.mp4'
         # input_video = 'harder_challenge_video.mp4'
         
-        white_output = 'output_videos/' + input_video.split('.mp4')[0] + '.mp4'
+        white_output = 'output_videos/' + input_video.split('.mp4')[0] + '_output' + '.mp4'
         
-        # clip1 = VideoFileClip(input_video).subclip(0,5)
+        # clip1 = VideoFileClip(input_video).subclip(0,1)
         clip1 = VideoFileClip(input_video)
         
         white_clip = clip1.fl_image(process_image)
