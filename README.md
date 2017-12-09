@@ -121,3 +121,11 @@ Here's a [link to my video result](./output_videos/project_video_output.mp4)
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
 Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+
+##### Challenges
+* The first major challenge I've faced is the binary data extraction. First, I used Sobel X operator combined with a thresholded S-channel from the HSV colour space. I implemented my first prototype with this extraction method. However, it has failed in 2 frames on the project_video file. Accordingly, I migrated to another method of extraction, taking into account 2 masks; white and yellow: 
+  - The white mask was extracted from and RGB colour space image within the range `(202,202,202)` to `(255,255,255)`, which perfectly detected white lane lines.
+  - The yellow mask was extracted from the HSV colour space image within the range `(20,60,60)`to `(38,174, 250)`, which perfectly detected yellow lane lines, which perfectly detected white lane lines. and different light conditions.
+
+##### Further improvements 
+* A further improvmet could be more methods in binary data extraction to ake the code more robust under diffrent lightig conditions.
