@@ -67,7 +67,6 @@ def camera_cal(path, nx=9, ny=6):
 
     return mtx, dist
 
-
 def cal_undistort(img, mtx, dist):
     undist = cv2.undistort(img, mtx, dist, None, mtx)
 
@@ -131,6 +130,30 @@ def hls_select(img, thresh=(0, 255)):
     binary_output[(s_channel >= thresh[0]) & (s_channel <= thresh[1])] = 1
     
     return binary_output
+
+def select_yellow(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    lower = np.array([20,60,60])
+    upper = np.array([38,174, 250])
+    mask = cv2.inRange(hsv, lower, upper)
+
+    return mask
+
+def select_white(image):
+    lower = np.array([202,202,202])
+    upper = np.array([255,255,255])
+    mask = cv2.inRange(image, lower, upper)
+
+    return mask
+
+def combined_threshold1(image):
+  yellow = select_yellow(image)
+  white = select_white(image)
+
+  combined_binary = np.zeros_like(yellow)
+  combined_binary[(yellow >= 1) | (white >= 1)] = 1
+
+  return combined_binary
 
 def compined_threshod(image):
     sxbinary = abs_sobel_thresh(image, orient='x', sobel_kernel=3, thresh=(20, 100))
@@ -313,7 +336,6 @@ def update_lanes(binary_warped, margin=100):
     
     return out_img_wrapped
 
-
 def draw_lanes(perspective_img, Minv, undist_img):
     ploty = np.linspace(0, perspective_img.shape[0] - 1, perspective_img.shape[0])
 
@@ -357,7 +379,7 @@ def process_image(image):
     # undistort image
     undist_img = cal_undistort(image, mtx, dist)
 
-    combined_binary = compined_threshod(undist_img)
+    combined_binary = combined_threshold1(undist_img)
 
     img_size = image.shape
     src = np.array([[575. / 1280. * img_size[1], 460. / 720. * img_size[0]],
@@ -379,8 +401,6 @@ def process_image(image):
 
     return output
 
-
-
 if __name__ == "__main__":
     video = True
     mtx, dist = camera_cal('camera_cal')
@@ -394,7 +414,7 @@ if __name__ == "__main__":
         
         white_output = 'output_videos/' + input_video.split('.mp4')[0] + '_output' + '.mp4'
         
-        # clip1 = VideoFileClip(input_video).subclip(0,1)
+        # clip1 = VideoFileClip(input_video).subclip(41,43)
         clip1 = VideoFileClip(input_video)
         
         white_clip = clip1.fl_image(process_image)
@@ -402,12 +422,14 @@ if __name__ == "__main__":
         white_clip.write_videofile(white_output, audio=False)
 
     else:
-        for path in glob.glob('test_images/*.jpg'):
+        path = 'test_images/*.jpg'
+        path = 'md_images/signs_vehicles_xygrad.jpg'
+        for path in glob.glob(path):
             img = cv2.imread(path)
             output = process_image(img)
 
-            output_image_name = path.split('\\')[-1].split('jpg')[0] + '_output.jpg'
-            cv2.imwrite('output_images/' + output_image_name,output)
+            output_image_name = path.split('\\')[-1].split('.jpg')[0] + '_output.jpg'
+            cv2.imwrite('output_images/' + output_image_name, output)
 
             fig = plt.figure(figsize=(6, 6))
             plt.imshow(output)
